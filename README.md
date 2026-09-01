@@ -14,10 +14,14 @@ The app presents one evolving twin state through seven views:
 - Personal, room, building and landscape intervention scales
 - Four genuine review outcomes: Approve, Modify, Escalate and Monitor Only
 - Directional post-intervention transitions across Human, Environment and Twin State
+- A `Data & Sensing` module with demo synchronization, CSV ingestion and live-connection configuration states
+- A `Devices & Control` module with endpoint abstractions, advisory/simulated/live modes, operator gating and simulated acknowledgement
 
 ## Scientific boundary
 
 This is a research and conference demonstrator. It does **not** provide a clinical diagnosis, predict an individual treatment effect, actuate real building systems, or report measured recovery. Post-intervention outputs express directional system-state changes only.
+
+Live sensor and hardware-control panels are explicit integration placeholders. They do not connect to external endpoints without separately commissioned APIs, gateways, credentials and safety validation.
 
 ## Run locally
 
@@ -49,4 +53,3 @@ streamlit run app.py
 ├── requirements.txt
 └── .gitignore
 ```
-

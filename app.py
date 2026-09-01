@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import csv
+import io
 import math
 import time
+from datetime import datetime, timezone
 
 import numpy as np
 import plotly.graph_objects as go
@@ -81,6 +84,16 @@ def initialise() -> None:
         "modified": False,
         "last_level": 1,
         "scale_widget_epoch": 0,
+        "workspace": "Twin Workflow",
+        "data_mode": "Demo data",
+        "data_status": "Demo source ready",
+        "data_quality": "Validated demo profile",
+        "data_records": 5,
+        "last_sync": "Not synchronized",
+        "control_mode": "Advisory",
+        "command_state": "No command prepared",
+        "device_connection": "Not connected",
+        "command_log": [],
     }
     for key, value in defaults.items():
         st.session_state.setdefault(key, value)
@@ -181,6 +194,188 @@ def scale_elements(scale: str) -> tuple[str, str, str]:
         "Building": ("HVAC / filtration", "Zone cooling / façade shading", "Refuge circulation"),
         "Landscape": ("Canopy shade / planting", "Water / mist / natural sound", "Lower-exposure route"),
     }[scale]
+
+
+def utc_now() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+
+
+def render_data_module() -> None:
+    st.markdown('<div class="eyebrow">CAPABILITY MODULE 01 · DATA & SENSING</div>', unsafe_allow_html=True)
+    st.header("Connect, qualify and ingest sensing data")
+    st.caption("This module distinguishes demonstration inputs, uploaded datasets and future live sensor connections.")
+
+    mode = st.segmented_control(
+        "Input mode",
+        ["Demo data", "Upload dataset", "Live sensor / API"],
+        default=st.session_state.data_mode,
+        selection_mode="single",
+    )
+    if mode:
+        st.session_state.data_mode = mode
+
+    if st.session_state.data_mode == "Demo data":
+        st.info("Preset physiological and environmental profiles are generated locally for interactive exploration.")
+        cols = st.columns(4)
+        values = [
+            ("Source", "Built-in profiles", "L1–L5 operational examples"),
+            ("Connection", "Ready", "No external service required"),
+            ("Data quality", "Validated schema", "Expected ranges available"),
+            ("Last sync", st.session_state.last_sync, "Session-level synchronization"),
+        ]
+        for col, value in zip(cols, values):
+            with col:
+                card(*value)
+        if st.button("Synchronize demo source with twin", type="primary"):
+            st.session_state.data_status = "Synchronized (demo)"
+            st.session_state.data_quality = "Validated demo profile"
+            st.session_state.data_records = 5
+            st.session_state.last_sync = utc_now()
+            st.success("Demo source synchronized with the shared twin state.")
+
+    elif st.session_state.data_mode == "Upload dataset":
+        uploaded = st.file_uploader("Upload physiological data", type=["csv"], help="Expected columns: sdnn, bpm, qtc, lfhf. Additional timestamp and environmental columns are retained as context.")
+        if uploaded:
+            try:
+                text_data = uploaded.getvalue().decode("utf-8-sig")
+                rows = list(csv.DictReader(io.StringIO(text_data)))
+                columns = list(rows[0]) if rows else []
+                required = {"sdnn", "bpm", "qtc", "lfhf"}
+                normalized = {c.lower().strip(): c for c in columns}
+                missing = sorted(required - set(normalized))
+                if rows and not missing:
+                    st.success(f"Schema valid · {len(rows)} records · {len(columns)} fields")
+                    st.dataframe(rows[:8], use_container_width=True)
+                    if st.button("Ingest latest record into twin", type="primary"):
+                        latest = rows[-1]
+                        st.session_state.sdnn = int(float(latest[normalized["sdnn"]]))
+                        st.session_state.bpm = int(float(latest[normalized["bpm"]]))
+                        st.session_state.qtc = int(float(latest[normalized["qtc"]]))
+                        st.session_state.lfhf = float(latest[normalized["lfhf"]])
+                        st.session_state.preset = 0
+                        st.session_state.data_status = "Uploaded dataset ingested"
+                        st.session_state.data_quality = "Schema valid"
+                        st.session_state.data_records = len(rows)
+                        st.session_state.last_sync = utc_now()
+                        st.success("Latest physiological record ingested. Return to Twin Workflow to inspect the updated state.")
+                elif missing:
+                    st.error("Missing required fields: " + ", ".join(missing))
+                else:
+                    st.warning("The uploaded CSV contains no data records.")
+            except (UnicodeDecodeError, ValueError) as exc:
+                st.error(f"The dataset could not be read: {exc}")
+        else:
+            st.markdown('<div class="callout"><b>No dataset uploaded</b><br>Upload remains local to the current Streamlit session. No file is transmitted to a device endpoint.</div>', unsafe_allow_html=True)
+
+    else:
+        st.warning("Live ingestion is an integration placeholder. No sensor endpoint is connected in this demonstrator.")
+        with st.form("live_source_config"):
+            protocol = st.selectbox("Protocol", ["REST API", "MQTT", "WebSocket"])
+            endpoint = st.text_input("Endpoint / broker", placeholder="https://api.example.org/sensors or mqtts://broker")
+            source_id = st.text_input("Source ID", placeholder="wearable-01 / room-sensor-01")
+            submitted = st.form_submit_button("Validate configuration")
+        if submitted:
+            if endpoint and source_id:
+                st.session_state.data_status = "Configured · not connected"
+                st.session_state.data_quality = "Awaiting live payload"
+                st.info(f"{protocol} configuration recorded for this session. Connection and credentials are not executed by the demonstrator.")
+            else:
+                st.error("Endpoint and Source ID are required.")
+
+    st.subheader("Twin ingestion status")
+    status_cols = st.columns(4)
+    for col, value in zip(status_cols, [
+        ("Input mode", st.session_state.data_mode, "Selected source pathway"),
+        ("Source state", st.session_state.data_status, "Connection / ingestion state"),
+        ("Quality state", st.session_state.data_quality, "Schema and range status"),
+        ("Records", str(st.session_state.data_records), st.session_state.last_sync),
+    ]):
+        with col:
+            card(*value)
+    st.caption("Boundary: data upload and demo synchronization update software state only. Live physiological or environmental streaming has not been validated.")
+
+
+def render_control_module(level: int) -> None:
+    st.markdown('<div class="eyebrow">CAPABILITY MODULE 02 · DEVICES & CONTROL</div>', unsafe_allow_html=True)
+    st.header("Map reviewed interventions to device endpoints")
+    st.caption("The module separates advisory logic, simulated dispatch and future live actuation.")
+
+    mode = st.segmented_control(
+        "Control mode",
+        ["Advisory", "Simulated", "Live control"],
+        default=st.session_state.control_mode,
+        selection_mode="single",
+    )
+    if mode:
+        st.session_state.control_mode = mode
+
+    device_rows = [
+        {"Endpoint": "Room airflow", "Protocol": "BEMS / BACnet abstraction", "Status": "Simulated", "Current": "Baseline", "Proposed": "Increase"},
+        {"Endpoint": "Zone cooling", "Protocol": "HVAC abstraction", "Status": "Simulated", "Current": "Standard", "Proposed": st.session_state.intensity},
+        {"Endpoint": "Adaptive shading", "Protocol": "IoT gateway abstraction", "Status": "Simulated", "Current": "Context", "Proposed": "Deploy"},
+        {"Endpoint": "Landscape mist / route", "Protocol": "Advisory endpoint", "Status": "Protocol-level", "Current": "Inactive", "Proposed": st.session_state.scale},
+    ]
+    st.subheader("Endpoint registry")
+    st.dataframe(device_rows, use_container_width=True, hide_index=True)
+
+    left, right = st.columns([1.15, 1])
+    with left:
+        st.subheader("Command preview")
+        st.markdown(f"### {st.session_state.action}")
+        command_rows = [
+            ("Operational state", f"Level {level} · {LEVEL_NAMES[level]}"),
+            ("Model recommendation", response_summary(level)),
+            ("Selected contextual layer", f"{st.session_state.scale} · {st.session_state.intensity}"),
+            ("Decision state", st.session_state.decision),
+            ("Control mode", st.session_state.control_mode),
+        ]
+        for label, value in command_rows:
+            st.markdown(f'<div class="state-row"><span>{label}</span><strong>{value}</strong></div>', unsafe_allow_html=True)
+    with right:
+        st.subheader("Operator gate")
+        if st.session_state.control_mode == "Live control":
+            st.error("Live control unavailable · no authenticated gateway or safety interlock is connected.")
+        elif st.session_state.control_mode == "Advisory":
+            st.info("Advisory mode records a recommendation without dispatching a device command.")
+        else:
+            st.warning("Simulated mode produces a software acknowledgement only. No physical equipment is actuated.")
+
+        if st.button("Prepare reviewed command", use_container_width=True):
+            if st.session_state.decision in {"Approved", "Modified", "Escalated"}:
+                st.session_state.command_state = "Prepared · operator confirmation required"
+            else:
+                st.session_state.command_state = "Blocked · Review approval required"
+        if st.session_state.control_mode == "Advisory":
+            if st.button("Record advisory", type="primary", use_container_width=True):
+                stamp = utc_now()
+                st.session_state.command_state = "Advisory recorded"
+                st.session_state.command_log = [f"{stamp} · Advisory · {st.session_state.action}"] + st.session_state.command_log[:4]
+        elif st.session_state.control_mode == "Simulated":
+            confirmed = st.checkbox("I confirm this is a simulated command")
+            if st.button("Dispatch simulated command", type="primary", use_container_width=True, disabled=not confirmed):
+                if st.session_state.decision in {"Approved", "Modified", "Escalated"}:
+                    stamp = utc_now()
+                    st.session_state.command_state = "Acknowledged (simulated)"
+                    st.session_state.command_log = [f"{stamp} · Simulated acknowledgement · {st.session_state.scale}"] + st.session_state.command_log[:4]
+                    st.success("Simulated endpoint acknowledgement received. No physical actuation occurred.")
+                else:
+                    st.error("Review approval is required before simulated dispatch.")
+        else:
+            st.button("Dispatch live command", type="primary", use_container_width=True, disabled=True)
+
+    state_cols = st.columns(3)
+    for col, value in zip(state_cols, [
+        ("Gateway", st.session_state.device_connection, "No credentials configured"),
+        ("Command state", st.session_state.command_state, "Operator-gated state"),
+        ("Safety mode", "Human-in-the-loop", "No autonomous actuation"),
+    ]):
+        with col:
+            card(*value)
+    if st.session_state.command_log:
+        st.subheader("Recent control log")
+        for entry in st.session_state.command_log:
+            st.code(entry, language=None)
+    st.caption("Boundary: endpoints are implementation abstractions. BACnet, Modbus, MQTT and BEMS integrations require authenticated gateways, device commissioning and independent safety validation.")
 
 
 def goto(index: int) -> None:
@@ -297,36 +492,55 @@ with badge_col:
     st.markdown('<div class="boundary">● Offline physiological inference framework</div>', unsafe_allow_html=True)
 
 with st.sidebar:
-    st.header("Physiological State Simulator")
-    st.caption("Shared state · interactive demonstration")
-    st.markdown("#### Preset stress level")
-    preset_cols = st.columns(5)
-    for i, col in enumerate(preset_cols, 1):
-        if col.button(f"L{i}", use_container_width=True, type="primary" if st.session_state.preset == i else "secondary"):
-            apply_preset(i)
+    st.header("Twin Workspace")
+    workspace = st.radio(
+        "Capability area",
+        ["Twin Workflow", "Data & Sensing", "Devices & Control"],
+        key="workspace",
+    )
+    st.divider()
+    if workspace == "Twin Workflow":
+        st.header("Physiological State Simulator")
+        st.caption("Shared state · interactive demonstration")
+        st.markdown("#### Preset stress level")
+        preset_cols = st.columns(5)
+        for i, col in enumerate(preset_cols, 1):
+            if col.button(f"L{i}", use_container_width=True, type="primary" if st.session_state.preset == i else "secondary"):
+                apply_preset(i)
+                st.rerun()
+        st.markdown("#### Manual physiology")
+        old = (st.session_state.sdnn, st.session_state.bpm, st.session_state.qtc, st.session_state.lfhf)
+        st.slider("SDNN (ms)", 15, 70, key="sdnn")
+        st.slider("BPM", 55, 120, key="bpm")
+        st.slider("QTc (ms)", 390, 500, key="qtc")
+        st.slider("LF/HF", 0.5, 8.0, step=0.1, key="lfhf")
+        new = (st.session_state.sdnn, st.session_state.bpm, st.session_state.qtc, st.session_state.lfhf)
+        if old != new:
+            st.session_state.preset = 0
+            reset_decision()
+        current_score = score()
+        current_level = level_from_score(current_score)
+        st.metric("StressScore", f"{current_score:.2f}", help="Demonstration normalised stress-state index")
+        st.caption("Not a clinically validated score or diagnosis.")
+        if st.button("Reset baseline", use_container_width=True):
+            apply_preset(1)
+            goto(0)
             st.rerun()
-    st.markdown("#### Manual physiology")
-    old = (st.session_state.sdnn, st.session_state.bpm, st.session_state.qtc, st.session_state.lfhf)
-    st.slider("SDNN (ms)", 15, 70, key="sdnn")
-    st.slider("BPM", 55, 120, key="bpm")
-    st.slider("QTc (ms)", 390, 500, key="qtc")
-    st.slider("LF/HF", 0.5, 8.0, step=0.1, key="lfhf")
-    new = (st.session_state.sdnn, st.session_state.bpm, st.session_state.qtc, st.session_state.lfhf)
-    if old != new:
-        st.session_state.preset = 0
-        reset_decision()
-    current_score = score()
-    current_level = level_from_score(current_score)
-    st.metric("StressScore", f"{current_score:.2f}", help="Demonstration normalised stress-state index")
-    st.caption("Not a clinically validated score or diagnosis.")
-    if st.button("Reset baseline", use_container_width=True):
-        apply_preset(1)
-        goto(0)
-        st.rerun()
+    elif workspace == "Data & Sensing":
+        st.caption("Source configuration, quality checks and twin ingestion status.")
+    else:
+        st.caption("Endpoint abstraction, operator gate and simulated acknowledgement.")
 
 current_score = score()
 current_level = level_from_score(current_score)
 sync_level_state(current_level)
+
+if st.session_state.workspace == "Data & Sensing":
+    render_data_module()
+    st.stop()
+if st.session_state.workspace == "Devices & Control":
+    render_control_module(current_level)
+    st.stop()
 
 st.markdown(
     f'<div class="live"><div><span>Live state</span><strong>{current_score:.2f}</strong><small>Demonstration normalised index</small></div>'
