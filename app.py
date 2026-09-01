@@ -29,14 +29,14 @@ PRESETS = {
     5: dict(sdnn=17, bpm=115, qtc=490, lfhf=7.0),
 }
 LEVEL_NAMES = {1: "Normal", 2: "Mild Stress", 3: "Moderate Stress", 4: "High Stress", 5: "Extreme Stress"}
-RECOMMENDED = {1: "Personal", 2: "Room", 3: "Room", 4: "Building", 5: "Landscape"}
+RECOMMENDED = {1: "Personal", 2: "Room", 3: "Room", 4: "Building", 5: "Room"}
 SCALE_TIME = {"Personal": "< 5 s", "Room": "15–30 s", "Building": "1–5 min", "Landscape": "5–15 min"}
 INTERVENTIONS = {
     1: "Baseline monitoring",
     2: "Low-intensity restoration",
     3: "Recovery–escalation review",
     4: "Cooling and sensory refuge",
-    5: "Protected retreat and advisory alert",
+    5: "Protective Recovery / Active Support",
 }
 ENVIRONMENT = {
     1: "Stable restorative context",
@@ -79,6 +79,7 @@ def initialise() -> None:
         "intensity": "Low",
         "pathway": "A",
         "modified": False,
+        "last_level": 1,
     }
     for key, value in defaults.items():
         st.session_state.setdefault(key, value)
@@ -111,7 +112,26 @@ def apply_preset(level: int) -> None:
     st.session_state.scale = RECOMMENDED[level]
     st.session_state.action = INTERVENTIONS[level]
     st.session_state.intensity = "High" if level >= 4 else "Moderate" if level >= 2 else "Low"
+    st.session_state.last_level = level
     reset_decision()
+
+
+def sync_level_state(level: int) -> None:
+    """Keep every view aligned when physiology crosses an operational level."""
+    if st.session_state.last_level == level:
+        return
+    st.session_state.action = INTERVENTIONS[level]
+    st.session_state.scale = RECOMMENDED[level]
+    st.session_state.intensity = "High" if level >= 4 else "Moderate" if level >= 2 else "Low"
+    st.session_state.last_level = level
+    reset_decision()
+
+
+def response_summary(level: int) -> str:
+    if level == 5:
+        return "Context-dependent · Personal/Room immediate → Building/Landscape escalation"
+    scale = RECOMMENDED[level]
+    return f"{scale} · {SCALE_TIME[scale]}"
 
 
 def goto(index: int) -> None:
@@ -240,8 +260,7 @@ with st.sidebar:
 
 current_score = score()
 current_level = level_from_score(current_score)
-if st.session_state.preset == 0 and st.session_state.action in INTERVENTIONS.values():
-    st.session_state.action = INTERVENTIONS[current_level]
+sync_level_state(current_level)
 
 st.markdown(
     f'<div class="live"><div><span>Live state</span><strong>{current_score:.2f}</strong><small>Demonstration normalised index</small></div>'
@@ -308,10 +327,20 @@ elif stage == 3:
 
 elif stage == 4:
     recommended = RECOMMENDED[current_level]
-    st.info(f"Recommended scale: **{recommended} · {SCALE_TIME[recommended]}**")
+    if current_level == 5:
+        st.info("Recommended strategy: **Protect first → context-dependent environmental escalation**")
+        immediate, escalation = st.columns(2)
+        with immediate:
+            st.markdown('<div class="callout"><b>1 · Immediate protective response</b><br>Personal cooling · reduce immediate thermal/acoustic exposure · move to a shaded or quiet retreat · occupancy advisory · high-priority human review</div>', unsafe_allow_html=True)
+        with escalation:
+            st.markdown('<div class="callout success-callout"><b>2 · Environmental escalation</b><br>Room airflow/acoustic buffering → Building HVAC/zone control → Landscape shade, water, refuge and lower-exposure pathway, according to context</div>', unsafe_allow_html=True)
+    else:
+        st.info(f"Recommended scale: **{recommended} · {SCALE_TIME[recommended]}**")
     st.segmented_control("Explore intervention scale", list(SCALE_TIME), key="scale", selection_mode="single")
-    if st.session_state.scale != recommended:
+    if current_level != 5 and st.session_state.scale != recommended:
         st.warning(f"Exploring {st.session_state.scale}; the model recommendation remains {recommended}.")
+    elif current_level == 5:
+        st.caption("Level 5 determines urgency and intensity; the selected scale represents the current contextual layer, not a fixed severity-to-scale mapping.")
     st.markdown(scene_html(current_level, st.session_state.scale, st.session_state.feedback == "Simulated complete"), unsafe_allow_html=True)
     st.markdown(f'<div class="callout success-callout"><b>{st.session_state.action}</b><br>{st.session_state.scale} response · {st.session_state.intensity} intensity · simulated / protocol-level</div>', unsafe_allow_html=True)
 
@@ -320,8 +349,10 @@ elif stage == 5:
     with left:
         st.subheader("Current AI recommendation")
         st.markdown(f"### {st.session_state.action}")
-        for label, value in [("Current evidence", f"SDNN {st.session_state.sdnn} · BPM {st.session_state.bpm} · QTc {st.session_state.qtc} · LF/HF {st.session_state.lfhf:.1f}"), ("Environmental context", ENVIRONMENT[current_level]), ("Selected response", f"{st.session_state.scale} · {st.session_state.intensity} intensity"), ("Rationale", THEORY[current_level]), ("Validation", "Inference validated offline; intervention protocol-level / simulated")]:
+        for label, value in [("Current evidence", f"SDNN {st.session_state.sdnn} · BPM {st.session_state.bpm} · QTc {st.session_state.qtc} · LF/HF {st.session_state.lfhf:.1f}"), ("Environmental context", ENVIRONMENT[current_level]), ("Recommended strategy", response_summary(current_level)), ("Current contextual layer", f"{st.session_state.scale} · {st.session_state.intensity} intensity"), ("Rationale", THEORY[current_level]), ("Validation", "Inference validated offline; intervention protocol-level / simulated")]:
             st.markdown(f'<div class="state-row"><span>{label}</span><strong>{value}</strong></div>', unsafe_allow_html=True)
+        if current_level == 5:
+            st.markdown('<div class="callout"><b>High-priority protective support</b><br>This is an extreme operational stress state, not a medical diagnosis or emergency-treatment recommendation.</div>', unsafe_allow_html=True)
     with right:
         if current_level == 3:
             st.session_state.pathway = st.radio("Recovery–escalation threshold", ["A", "B"], format_func=lambda x: "Path A · Restorative response" if x == "A" else "Path B · Active support", horizontal=True)
@@ -382,4 +413,3 @@ else:
 
 st.divider()
 st.caption("Validated: offline ECG processing · HRV extraction · RF classification · SHAP interpretation  |  Protocol-level: intervention mapping · simulated feedback · multi-scale response  |  Not validated: clinical diagnosis · live actuation · measured recovery")
-
