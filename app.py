@@ -80,6 +80,7 @@ def initialise() -> None:
         "pathway": "A",
         "modified": False,
         "last_level": 1,
+        "scale_widget_epoch": 0,
     }
     for key, value in defaults.items():
         st.session_state.setdefault(key, value)
@@ -113,17 +114,21 @@ def apply_preset(level: int) -> None:
     st.session_state.action = INTERVENTIONS[level]
     st.session_state.intensity = "High" if level >= 4 else "Moderate" if level >= 2 else "Low"
     st.session_state.last_level = level
+    st.session_state.scale_widget_epoch += 1
     reset_decision()
 
 
 def sync_level_state(level: int) -> None:
     """Keep every view aligned when physiology crosses an operational level."""
     if st.session_state.last_level == level:
+        if st.session_state.decision == "Pending" and st.session_state.action in INTERVENTIONS.values():
+            st.session_state.action = INTERVENTIONS[level]
         return
     st.session_state.action = INTERVENTIONS[level]
     st.session_state.scale = RECOMMENDED[level]
     st.session_state.intensity = "High" if level >= 4 else "Moderate" if level >= 2 else "Low"
     st.session_state.last_level = level
+    st.session_state.scale_widget_epoch += 1
     reset_decision()
 
 
@@ -139,6 +144,8 @@ def represented_spatial_state(level: int) -> str:
         return "Room-scale intervention context"
     if level == 5:
         return f"{st.session_state.scale} immediate layer · context-dependent escalation"
+    if level == 4:
+        return "Building-scale response context"
     return f"{st.session_state.scale} layer selected"
 
 
@@ -150,6 +157,30 @@ def represented_intervention_state(level: int) -> str:
             return "Recovery–escalation review pending"
         return f"{st.session_state.action} pending"
     return st.session_state.action
+
+
+def represented_decision_state(level: int) -> str:
+    if level == 4 and st.session_state.decision == "Pending":
+        return "Active support pending review"
+    return st.session_state.decision
+
+
+def scale_summary(scale: str) -> str:
+    return {
+        "Personal": "Immediate personal cooling and retreat guidance",
+        "Room": "Room-scale sensory and microclimate adjustment",
+        "Building": "Building-scale cooling, ventilation and refuge coordination",
+        "Landscape": "Landscape-scale shade, microclimate and lower-exposure routing",
+    }[scale]
+
+
+def scale_elements(scale: str) -> tuple[str, str, str]:
+    return {
+        "Personal": ("Personal cooling", "Wearable / HRV support", "Immediate retreat cue"),
+        "Room": ("Local airflow", "Adaptive lighting / acoustic buffer", "Restorative micro-setting"),
+        "Building": ("HVAC / filtration", "Zone cooling / façade shading", "Refuge circulation"),
+        "Landscape": ("Canopy shade / planting", "Water / mist / natural sound", "Lower-exposure route"),
+    }[scale]
 
 
 def goto(index: int) -> None:
@@ -195,13 +226,21 @@ def ecg_figure(bpm: int, sdnn: int, qtc: int) -> go.Figure:
 
 def scene_html(level: int, scale: str, updated: bool = False) -> str:
     intensity = ["", "baseline", "mild", "moderate", "high", "extreme"][level]
+    scale_class = scale.lower()
     return f"""
-    <div class="scene {intensity}">
+    <div class="scene {intensity} scale-{scale_class}">
       <div class="scene-label">{scale.upper()} LAYER · {'TWIN UPDATED' if updated else 'SIMULATED'}</div>
-      <div class="sun"></div><div class="building"><div class="window">GREEN VIEW</div><div class="vent">AIRFLOW</div></div>
-      <div class="person"><i></i><b></b><span>HRV</span></div>
-      <div class="tree"><i></i><b></b></div><div class="water">restorative water</div>
-      <div class="shade">SHADE ↑</div><div class="route">lower-exposure pathway</div>
+      <div class="focus-title">{scale_summary(scale)}</div>
+      <div class="sun"></div>
+      <div class="building">
+        <div class="room-zone"><span>HEALING ROOM</span></div><div class="window">GREEN VIEW</div>
+        <div class="vent">LOCAL AIRFLOW</div><div class="hvac">HVAC</div><div class="filter">FILTRATION</div>
+        <div class="facade">ADAPTIVE FAÇADE</div><div class="circulation">→ REFUGE</div>
+        <div class="light-field">ADAPTIVE LIGHT</div><div class="sound-field">ACOUSTIC BUFFER</div>
+      </div>
+      <div class="person"><div class="personal-halo"></div><i></i><b></b><span>HRV</span><em>COOLING</em><u>RETREAT CUE →</u></div>
+      <div class="landscape"><div class="tree tree-one"><i></i><b></b></div><div class="tree tree-two"><i></i><b></b></div><div class="planting">PLANTING</div><div class="water">RESTORATIVE WATER</div><div class="mist">MIST · NATURAL SOUND</div><div class="shade">CANOPY SHADE</div><div class="route">LOWER-EXPOSURE PATH →</div><div class="retreat">RETREAT</div></div>
+      <div class="system-path path-one">COOLING →</div><div class="system-path path-two">VENTILATION →</div>
     </div>"""
 
 
@@ -226,12 +265,21 @@ h1,h2,h3 { color:#17352D; letter-spacing:-.025em; }
 .chain .active { color:#D87F68; }.chain i { color:#8AA297;font-style:normal; }
 .response { border:1px solid #D9E4DE;background:#FFFEFA;padding:1.1rem;min-height:240px; }
 .response h3 { margin:.1rem 0 .2rem;font-size:1.2rem; }.response small { color:#668078; }.response p { display:flex;justify-content:space-between;border-top:1px solid #E1E9E4;padding:.75rem 0;margin:0; }.response b { color:#507D69; }
-.scene {height:355px;position:relative;overflow:hidden;border:1px solid #C9D8D0;background:linear-gradient(#DDECE9 0 50%,#B8C99F 50%);}
-.scene-label {position:absolute;z-index:8;top:12px;left:12px;background:#17352D;color:white;padding:7px 10px;font-size:11px;font-weight:700;letter-spacing:.08em;}
-.sun {position:absolute;width:58px;height:58px;border-radius:50%;background:#F2DF9F;right:9%;top:12%;box-shadow:0 0 0 16px rgba(242,223,159,.25)}
-.building {position:absolute;left:5%;bottom:18%;width:42%;height:50%;background:#F5F1E6;border:3px solid #9EB6AA}.window {position:absolute;right:8%;top:20%;width:34%;height:38%;background:#B9D4C5;display:grid;place-items:center;font-size:10px;color:#315F50}.vent {position:absolute;left:10%;top:35%;padding:6px;border:1px solid #8AA297;font-size:9px}
-.person {position:absolute;left:34%;bottom:16%;width:45px;height:112px;z-index:4}.person i {position:absolute;width:27px;height:27px;border-radius:50%;left:9px;background:#B87962}.person b {position:absolute;width:34px;height:70px;border-radius:18px 18px 8px 8px;top:29px;left:5px;background:#54756D}.person span {position:absolute;left:-21px;top:45px;background:white;border:1px solid #D87F68;color:#B55E4A;padding:3px;font-size:9px}
-.tree {position:absolute;right:15%;bottom:24%;width:115px;height:165px}.tree i {position:absolute;width:15px;height:90px;background:#796D52;bottom:0;left:50px}.tree b {position:absolute;width:115px;height:100px;border-radius:50%;background:#70977C;top:0}.water {position:absolute;right:3%;bottom:7%;width:31%;height:12%;border-radius:50%;background:#9CC9CD;color:#416970;display:grid;place-items:center;font-size:9px}.shade {position:absolute;right:18%;top:22%;color:#315F50;font-weight:700}.route {position:absolute;right:38%;bottom:5%;color:#6D6252;font-size:10px}.high .sun,.extreme .sun{background:#EFA97F}.high .shade,.extreme .shade{color:#D87F68}.extreme .scene-label{background:#D87F68}
+.scene {height:390px;position:relative;overflow:hidden;border:1px solid #C9D8D0;background:linear-gradient(#DDECE9 0 53%,#B8C99F 53%);isolation:isolate;}
+.scene *{box-sizing:border-box}.scene-label {position:absolute;z-index:20;top:12px;left:12px;background:#17352D;color:white;padding:7px 10px;font-size:11px;font-weight:700;letter-spacing:.08em}.focus-title{position:absolute;z-index:20;top:12px;right:14px;color:#315F50;background:rgba(255,254,250,.9);border:1px solid #C9D8D0;padding:7px 10px;font-size:11px;font-weight:700}
+.sun {position:absolute;width:58px;height:58px;border-radius:50%;background:#F2DF9F;right:8%;top:14%;box-shadow:0 0 0 16px rgba(242,223,159,.25)}
+.building {position:absolute;z-index:3;left:5%;bottom:16%;width:43%;height:53%;background:#F5F1E6;border:3px solid #9EB6AA;transition:.25s}.room-zone{position:absolute;inset:12% 7% 12% 7%;border:2px dashed #8EB6A0;background:rgba(227,238,231,.5)}.room-zone span{position:absolute;left:8px;bottom:7px;font-size:9px;color:#507D69;font-weight:700}.window {position:absolute;right:9%;top:20%;width:29%;height:35%;background:#B9D4C5;display:grid;place-items:center;font-size:9px;color:#315F50}.vent,.hvac,.filter,.facade,.circulation,.light-field,.sound-field{position:absolute;padding:5px 7px;border:1px solid #8AA297;background:#FFFEFA;font-size:8px;color:#315F50}.vent{left:10%;top:34%}.hvac{left:8%;top:8%}.filter{left:30%;top:8%}.facade{right:-3px;top:62%;writing-mode:vertical-rl}.circulation{left:35%;bottom:7%}.light-field{left:11%;top:61%;background:#F6E7B7}.sound-field{left:42%;top:47%;background:#D7E8E7}
+.person {position:absolute;z-index:9;left:34%;bottom:13%;width:48px;height:120px;transition:.25s}.person i {position:absolute;z-index:3;width:28px;height:28px;border-radius:50%;left:10px;background:#B87962}.person b {position:absolute;z-index:2;width:36px;height:73px;border-radius:18px 18px 8px 8px;top:30px;left:6px;background:#54756D}.person span,.person em,.person u{position:absolute;z-index:4;background:white;border:1px solid #D87F68;color:#B55E4A;padding:3px;font-size:8px;font-style:normal;text-decoration:none;white-space:nowrap}.person span{left:-22px;top:46px}.person em{left:36px;top:64px}.person u{left:-22px;top:101px}.personal-halo{position:absolute;z-index:1;width:120px;height:120px;border-radius:50%;left:-36px;top:5px;border:2px solid #D87F68;background:rgba(216,127,104,.12)}
+.landscape{position:absolute;z-index:2;inset:0}.tree{position:absolute;width:108px;height:155px}.tree i{position:absolute;width:14px;height:86px;background:#796D52;bottom:0;left:47px}.tree b{position:absolute;width:108px;height:94px;border-radius:50%;background:#70977C;top:0}.tree-one{right:14%;bottom:22%}.tree-two{right:36%;bottom:19%;transform:scale(.7)}.water{position:absolute;right:2%;bottom:5%;width:30%;height:11%;border-radius:50%;background:#9CC9CD;color:#315F50;display:grid;place-items:center;font-size:8px}.shade{position:absolute;right:16%;top:22%;font-size:9px;font-weight:700;color:#315F50}.route{position:absolute;right:29%;bottom:3%;width:37%;height:34px;padding-top:12px;text-align:center;background:rgba(230,218,190,.82);clip-path:polygon(10% 0,90% 0,100% 100%,0 100%);font-size:8px;color:#6D6252}.mist{position:absolute;right:8%;bottom:21%;color:#4F8C91;font-size:9px}.planting{position:absolute;right:38%;bottom:16%;color:#41694F;font-size:9px}.retreat{position:absolute;right:30%;bottom:24%;background:#A68E6B;color:white;padding:5px 13px;font-size:8px}.system-path{position:absolute;z-index:7;color:#2F756D;border:1px solid #6CA59C;background:#E0F0ED;padding:5px 8px;font-size:9px;font-weight:700}.path-one{left:10%;top:28%}.path-two{left:24%;top:17%}
+.high .sun,.extreme .sun{background:#EFA97F}.extreme .scene-label{background:#D87F68}
+/* Personal: the person and immediate response halo dominate. */
+.scale-personal .person{left:48%;bottom:14%;transform:scale(1.38)}.scale-personal .personal-halo{box-shadow:0 0 0 22px rgba(216,127,104,.10)}.scale-personal .building,.scale-personal .landscape{opacity:.25;filter:saturate(.45)}.scale-personal .system-path,.scale-personal .room-zone,.scale-personal .hvac,.scale-personal .filter,.scale-personal .facade{display:none}
+/* Room: local enclosure and sensory fields dominate. */
+.scale-room .building{left:14%;bottom:8%;width:63%;height:67%;border-width:6px;box-shadow:0 0 0 8px rgba(80,125,105,.15)}.scale-room .room-zone{border-width:3px;background:rgba(227,238,231,.72)}.scale-room .vent,.scale-room .light-field,.scale-room .sound-field{transform:scale(1.2);box-shadow:0 0 14px rgba(80,125,105,.25)}.scale-room .person{left:49%;bottom:10%}.scale-room .landscape{opacity:.32}.scale-room .hvac,.scale-room .filter,.scale-room .facade,.scale-room .system-path{display:none}
+/* Building: shell, services and circulation form the visual hierarchy. */
+.scale-building .building{left:7%;bottom:6%;width:72%;height:75%;border:7px solid #507D69;box-shadow:inset 0 0 0 5px rgba(80,125,105,.14)}.scale-building .room-zone{inset:18% 10% 12% 9%;background:transparent}.scale-building .hvac,.scale-building .filter,.scale-building .facade,.scale-building .circulation{font-size:10px;font-weight:700;border:2px solid #507D69;box-shadow:0 0 14px rgba(80,125,105,.25)}.scale-building .system-path{display:block}.scale-building .person{left:54%;bottom:8%;transform:scale(.82)}.scale-building .landscape{opacity:.28;filter:saturate(.6)}.scale-building .personal-halo{display:none}
+/* Landscape: active outdoor systems occupy most of the scene. */
+.scale-landscape{background:linear-gradient(#DDECE9 0 43%,#AFC894 43%)}.scale-landscape .building{left:2%;bottom:20%;width:22%;height:35%;opacity:.55}.scale-landscape .building>div:not(.window){display:none}.scale-landscape .landscape{transform:scale(1.18);transform-origin:70% 65%}.scale-landscape .tree-one,.scale-landscape .tree-two,.scale-landscape .water,.scale-landscape .mist,.scale-landscape .planting,.scale-landscape .route,.scale-landscape .retreat,.scale-landscape .shade{filter:drop-shadow(0 0 9px rgba(49,95,80,.3));font-weight:700}.scale-landscape .person{left:27%;bottom:11%;transform:scale(.78)}.scale-landscape .personal-halo,.scale-landscape .system-path{display:none}
 @media(max-width:800px){.live{grid-template-columns:1fr}.state-row{grid-template-columns:1fr}.chain{flex-wrap:wrap}.scene{height:310px}}
 </style>
 """
@@ -319,7 +367,7 @@ elif stage == 1:
         ("Physiology", f"SDNN {st.session_state.sdnn} · BPM {st.session_state.bpm} · QTc {st.session_state.qtc} · LF/HF {st.session_state.lfhf:.1f}"),
         ("Environment state", ENVIRONMENT[current_level]),
         ("Spatial / asset state", represented_spatial_state(current_level)),
-        ("Decision state", st.session_state.decision),
+        ("Decision state", represented_decision_state(current_level)),
         ("Intervention state", represented_intervention_state(current_level)),
         ("Feedback state", st.session_state.feedback),
     ]
@@ -353,23 +401,40 @@ elif stage == 4:
         with escalation:
             st.markdown('<div class="callout success-callout"><b>2 · Environmental escalation</b><br>Room airflow/acoustic buffering → Building HVAC/zone control → Landscape shade, water, refuge and lower-exposure pathway, according to context</div>', unsafe_allow_html=True)
     else:
-        st.info(f"Recommended scale: **{recommended} · {SCALE_TIME[recommended]}**")
+        st.info(f"Model recommendation: **{recommended} · {SCALE_TIME[recommended]}**")
         if current_level == 3:
             st.caption("Level 3 is a decision boundary rather than a fixed intervention state: room-scale moderate restoration proceeds to human review of restorative versus active-support pathways.")
-    st.segmented_control("Explore intervention scale", list(SCALE_TIME), key="scale", selection_mode="single")
+        elif current_level == 4:
+            st.caption("Level 4 is an active support state: building-scale cooling, ventilation and refuge coordination remains the model recommendation.")
+    explored_scale = st.segmented_control(
+        "Explore intervention scale",
+        list(SCALE_TIME),
+        default=st.session_state.scale,
+        key=f"scale_explorer_{st.session_state.scale_widget_epoch}",
+        selection_mode="single",
+    )
+    if explored_scale:
+        st.session_state.scale = explored_scale
+    recommendation_col, exploration_col = st.columns(2)
+    with recommendation_col:
+        card("Model recommendation", response_summary(current_level), "Inference output · remains fixed during exploration")
+    with exploration_col:
+        card("Exploring scale", st.session_state.scale, "Controls scene, highlights and intervention summary")
     if current_level != 5 and st.session_state.scale != recommended:
         st.warning(f"Exploring {st.session_state.scale}; the model recommendation remains {recommended}.")
     elif current_level == 5:
         st.caption("Level 5 determines urgency and intensity; the selected scale represents the current contextual layer, not a fixed severity-to-scale mapping.")
     st.markdown(scene_html(current_level, st.session_state.scale, st.session_state.feedback == "Simulated complete"), unsafe_allow_html=True)
-    st.markdown(f'<div class="callout success-callout"><b>{st.session_state.action}</b><br>{st.session_state.scale} response · {st.session_state.intensity} intensity · simulated / protocol-level</div>', unsafe_allow_html=True)
+    highlights = " · ".join(scale_elements(st.session_state.scale))
+    state_prefix = "Active support state · Cooling and sensory refuge<br>" if current_level == 4 else ""
+    st.markdown(f'<div class="callout success-callout"><b>{scale_summary(st.session_state.scale)}</b><br>{state_prefix}{highlights}<br><small>{st.session_state.intensity} intensity · simulated / protocol-level</small></div>', unsafe_allow_html=True)
 
 elif stage == 5:
     left, right = st.columns([1.25, 1])
     with left:
         st.subheader("Current AI recommendation")
         st.markdown(f"### {st.session_state.action}")
-        for label, value in [("Current evidence", f"SDNN {st.session_state.sdnn} · BPM {st.session_state.bpm} · QTc {st.session_state.qtc} · LF/HF {st.session_state.lfhf:.1f}"), ("Environmental context", ENVIRONMENT[current_level]), ("Recommended strategy", response_summary(current_level)), ("Current contextual layer", f"{st.session_state.scale} · {st.session_state.intensity} intensity"), ("Rationale", THEORY[current_level]), ("Validation", "Inference validated offline; intervention protocol-level / simulated")]:
+        for label, value in [("Current evidence", f"SDNN {st.session_state.sdnn} · BPM {st.session_state.bpm} · QTc {st.session_state.qtc} · LF/HF {st.session_state.lfhf:.1f}"), ("Environmental context", ENVIRONMENT[current_level]), ("Recommended strategy", response_summary(current_level)), ("Current contextual layer", f"{st.session_state.scale} · {st.session_state.intensity} intensity"), ("Decision state", represented_decision_state(current_level)), ("Intervention state", represented_intervention_state(current_level)), ("Rationale", THEORY[current_level]), ("Validation", "Inference validated offline; intervention protocol-level / simulated")]:
             st.markdown(f'<div class="state-row"><span>{label}</span><strong>{value}</strong></div>', unsafe_allow_html=True)
         if current_level == 5:
             st.markdown('<div class="callout"><b>High-priority protective support</b><br>This is an extreme operational stress state, not a medical diagnosis or emergency-treatment recommendation.</div>', unsafe_allow_html=True)
@@ -414,11 +479,13 @@ else:
     else:
         st.markdown('<div class="chain"><span>Recommendation Approved</span><i>→</i><span class="active">Intervention Simulation</span><i>→</i><span>Twin State Updated</span></div>', unsafe_allow_html=True)
         complete = st.session_state.feedback == "Simulated complete"
+        st.markdown(f'<div class="callout success-callout"><b>Model recommendation: {response_summary(current_level)}</b><br>Applied exploration layer: {st.session_state.scale} · {scale_summary(st.session_state.scale)}</div>', unsafe_allow_html=True)
         cols = st.columns(3)
+        environmental_rows = [(name, "Expected ↑" if complete else "Selected") for name in scale_elements(st.session_state.scale)]
         blocks = [
             ("Human response", [("Stress trajectory", "↓" if complete else "—"), ("SDNN", "Expected ↑" if complete else "Current"), ("BPM", "Expected ↓" if complete else "Current")]),
-            ("Environment response", [("Environmental stressor", "Expected ↓" if complete else "Current"), ("Restorative exposure", "Expected ↑" if complete else "Selected"), ("Shade / acoustic quality", "Expected ↑" if complete else "Selected")]),
-            ("Twin state", [("Intervention state", "Completed" if complete else "Pending"), ("Feedback state", "Simulated" if complete else "Pending"), ("Twin state", "Updated" if complete else "Current")]),
+            ("Environment response", environmental_rows),
+            ("Twin state", [("Intervention state", f"{st.session_state.action} · {'Completed' if complete else 'Pending'}"), ("Feedback state", "Simulated" if complete else "Pending"), ("Twin state", "Updated" if complete else "Current")]),
         ]
         for col, (heading, rows) in zip(cols, blocks):
             with col:
