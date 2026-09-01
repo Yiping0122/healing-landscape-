@@ -134,6 +134,24 @@ def response_summary(level: int) -> str:
     return f"{scale} · {SCALE_TIME[scale]}"
 
 
+def represented_spatial_state(level: int) -> str:
+    if level == 3 and st.session_state.decision == "Pending":
+        return "Room-scale intervention context"
+    if level == 5:
+        return f"{st.session_state.scale} immediate layer · context-dependent escalation"
+    return f"{st.session_state.scale} layer selected"
+
+
+def represented_intervention_state(level: int) -> str:
+    if st.session_state.decision == "Monitor Only":
+        return "No intervention · monitoring"
+    if st.session_state.decision == "Pending":
+        if level == 3:
+            return "Recovery–escalation review pending"
+        return f"{st.session_state.action} pending"
+    return st.session_state.action
+
+
 def goto(index: int) -> None:
     st.session_state.stage = index
 
@@ -300,9 +318,9 @@ elif stage == 1:
         ("Human state", f"Level {current_level} · {LEVEL_NAMES[current_level]}"),
         ("Physiology", f"SDNN {st.session_state.sdnn} · BPM {st.session_state.bpm} · QTc {st.session_state.qtc} · LF/HF {st.session_state.lfhf:.1f}"),
         ("Environment state", ENVIRONMENT[current_level]),
-        ("Spatial / asset state", f"{st.session_state.scale} layer selected"),
+        ("Spatial / asset state", represented_spatial_state(current_level)),
         ("Decision state", st.session_state.decision),
-        ("Intervention state", "No intervention" if st.session_state.decision == "Monitor Only" else st.session_state.action),
+        ("Intervention state", represented_intervention_state(current_level)),
         ("Feedback state", st.session_state.feedback),
     ]
     for label, value in rows:
@@ -336,6 +354,8 @@ elif stage == 4:
             st.markdown('<div class="callout success-callout"><b>2 · Environmental escalation</b><br>Room airflow/acoustic buffering → Building HVAC/zone control → Landscape shade, water, refuge and lower-exposure pathway, according to context</div>', unsafe_allow_html=True)
     else:
         st.info(f"Recommended scale: **{recommended} · {SCALE_TIME[recommended]}**")
+        if current_level == 3:
+            st.caption("Level 3 is a decision boundary rather than a fixed intervention state: room-scale moderate restoration proceeds to human review of restorative versus active-support pathways.")
     st.segmented_control("Explore intervention scale", list(SCALE_TIME), key="scale", selection_mode="single")
     if current_level != 5 and st.session_state.scale != recommended:
         st.warning(f"Exploring {st.session_state.scale}; the model recommendation remains {recommended}.")
